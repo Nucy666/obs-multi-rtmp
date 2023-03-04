@@ -509,6 +509,77 @@ public:
             obs_output_force_stop(output_);
     }
 
+    void StartStreaming() override {
+        if (IsRunning())
+            return;
+        
+        // recreate output
+        ReleaseOutput();
+
+        if (output_ == nullptr)
+        {
+            output_ = obs_output_create("rtmp_output", "multi-output", nullptr, nullptr);
+            SetAsHandler(output_);
+        }
+
+        if (output_) {
+            isUseDelay_ = false;
+
+            auto profileConfig = obs_frontend_get_profile_config();
+            if (profileConfig) {
+                bool useDelay = config_get_bool(profileConfig, "Output", "DelayEnable");
+                bool preserveDelay = config_get_bool(profileConfig, "Output", "DelayPreserve");
+                int delaySec = config_get_int(profileConfig, "Output", "DelaySec");
+                obs_output_set_delay(output_,
+                    useDelay ? delaySec : 0,
+                    preserveDelay ? OBS_OUTPUT_DELAY_PRESERVE : 0
+                );
+
+                if (useDelay && delaySec > 0)
+                    isUseDelay_ = true;
+            }
+        }
+
+        if (!PrepareOutputService())
+        {
+            SetMsg(obs_module_text("Error.CreateRtmpService"));
+            return;
+        }
+
+        if (!PrepareOutputEncoders())
+        {
+            SetMsg(obs_module_text("Error.CreateEncoder"));
+            return;
+        }
+
+        if (!obs_output_start(output_))
+        {
+            SetMsg(obs_module_text("Error.StartOutput"));
+        }
+    }
+
+    void StopStreaming() override {
+        if (!IsRunning())
+            return;
+        
+        bool useForce = false;
+        if (isUseDelay_) {
+            auto res = QMessageBox(QMessageBox::Icon::Information,
+                "?",
+                obs_module_text("Ques.DropDelay"),
+                QMessageBox::StandardButton::Yes | QMessageBox::StandardButton::No,
+                this
+            ).exec();
+            if (res == QMessageBox::Yes)
+                useForce = true;
+        }
+
+        if (!useForce)
+            obs_output_stop(output_);
+        else
+            obs_output_force_stop(output_);
+    }
+
     QJsonObject Config() override
     {
         return conf_;
